@@ -8,9 +8,9 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # Переменные окружения
-TOKEN = os.getenv("TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
-CHANNEL_ID = os.getenv("CHANNEL_ID")
+TOKEN = "8180478614:AAGY0UbvZlK-4wF2n4V25h_Wy_rWV1ogm6o"
+CHANNEL_ID = "@tyumenmedia"
+ADMIN_ID = 987540995
 
 # Этапы ConversationHandler
 PHOTO, TEXT, LINK, BUDGET, CONFIRM, EDIT, EDIT_PARAM = range(7)
