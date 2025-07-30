@@ -24,7 +24,7 @@ user_data = {}
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     update.message.reply_text("Привет! Пришли изображение для рекламы.")
     return PHOTO
 
