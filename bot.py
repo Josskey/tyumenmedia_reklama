@@ -1,103 +1,134 @@
 import logging
-from telegram import Update, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
-    CallbackQueryHandler,
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram.ext import (ApplicationBuilder, CommandHandler, MessageHandler, filters,
+                          ConversationHandler, CallbackContext, CallbackQueryHandler)
 import os
-import json
 
-TOKEN = "8180478614:AAGY0UbvZlK-4wF2n4V25h_Wy_rWV1ogm6o"
-CHANNEL_ID = "@tyumenmedia"
-ADMIN_ID = 987540995
+TOKEN = os.getenv("TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID", 987540995))
+CHANNEL_ID = os.getenv("CHANNEL_ID", "@tyumenmedia")
+
+# Этапы диалога
+PHOTO, TEXT, LINK, BUDGET, CONFIRM = range(5)
+
+# Словарь для хранения черновиков заявок
+user_data_store = {}
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-ADS_FILE = "ads.json"
+async def start(update: Update, context: CallbackContext):
+    await update.message.reply_text("Привет! Давайте начнем с загрузки фото для вашей рекламы. 📷")
+    return PHOTO
 
-if not os.path.exists(ADS_FILE):
-    with open(ADS_FILE, "w") as f:
-        json.dump([], f)
-
-ads_cache = []
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Привет! Отправьте:\n1. Фото\n2. Текст\n3. Ссылку\n4. Бюджет\n— и я создам пост и передам админу на модерацию."
-    )
-
-user_sessions = {}
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_photo(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
-    message = update.message
+    photo = update.message.photo[-1].file_id
+    user_data_store[user_id] = {'photo': photo}
+    await update.message.reply_text("Отлично! Теперь отправьте текст рекламного поста ✍️")
+    return TEXT
 
-    if user_id not in user_sessions:
-        user_sessions[user_id] = {"step": "photo"}
+async def handle_text(update: Update, context: CallbackContext):
+    user_id = update.message.from_user.id
+    user_data_store[user_id]['text'] = update.message.text
+    await update.message.reply_text("Теперь пришлите ссылку на ваш сайт или страницу 🌐")
+    return LINK
 
-    session = user_sessions[user_id]
+async def handle_link(update: Update, context: CallbackContext):
+    user_id = update.message.from_user.id
+    user_data_store[user_id]['link'] = update.message.text
+    await update.message.reply_text("Последний шаг — укажите бюджет рекламы 💰")
+    return BUDGET
 
-    if session["step"] == "photo":
-        if message.photo:
-            session["photo_file_id"] = message.photo[-1].file_id
-            session["step"] = "text"
-            await message.reply_text("📝 Теперь отправьте текст объявления.")
-        else:
-            await message.reply_text("Пожалуйста, пришлите изображение.")
-    elif session["step"] == "text":
-        session["text"] = message.text
-        session["step"] = "link"
-        await message.reply_text("🔗 Теперь пришлите ссылку.")
-    elif session["step"] == "link":
-        session["link"] = message.text
-        session["step"] = "budget"
-        await message.reply_text("💰 И наконец — бюджет.")
-    elif session["step"] == "budget":
-        session["budget"] = message.text
+async def handle_budget(update: Update, context: CallbackContext):
+    user_id = update.message.from_user.id
+    user_data_store[user_id]['budget'] = update.message.text
 
-        post_preview = f"📌 <b>Рекламный пост</b>\n\n{session['text']}\n\n🔗 {session['link']}\n💸 Бюджет: {session['budget']}"
-        keyboard = InlineKeyboardMarkup([
+    data = user_data_store[user_id]
+    caption = f"{data['text']}\n\n🔗 {data['link']}\n💸 Бюджет: {data['budget']}"
+    keyboard = [
+        [InlineKeyboardButton("✅ Отправить", callback_data="send"),
+         InlineKeyboardButton("🔄 Редактировать", callback_data="edit"),
+         InlineKeyboardButton("🗑 Удалить", callback_data="delete")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_photo(photo=data['photo'], caption=caption, reply_markup=reply_markup)
+    return CONFIRM
+
+async def confirm_handler(update: Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    data = user_data_store.get(user_id)
+
+    if query.data == "send":
+        caption = f"{data['text']}\n\n🔗 {data['link']}\n💸 Бюджет: {data['budget']}"
+        keyboard = [
             [InlineKeyboardButton("✅ Одобрить", callback_data=f"approve|{user_id}"),
              InlineKeyboardButton("❌ Отклонить", callback_data=f"reject|{user_id}")]
-        ])
+        ]
+        markup = InlineKeyboardMarkup(keyboard)
+        await context.bot.send_photo(chat_id=ADMIN_ID, photo=data['photo'], caption=caption, reply_markup=markup)
+        await query.edit_message_caption(caption="Заявка отправлена на модерацию ✅")
+        return ConversationHandler.END
 
-        await context.bot.send_photo(
-            chat_id=ADMIN_ID,
-            photo=session['photo_file_id'],
-            caption=post_preview,
-            parse_mode="HTML",
-            reply_markup=keyboard
-        )
-        await message.reply_text("✅ Заявка отправлена админу. Ожидайте решения.")
-        user_sessions[user_id] = {}
+    elif query.data == "edit":
+        await query.edit_message_caption(caption="Редактирование заявки. Отправьте новое фото.")
+        return PHOTO
 
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    elif query.data == "delete":
+        user_data_store.pop(user_id, None)
+        await query.edit_message_caption(caption="Заявка удалена ❌")
+        return ConversationHandler.END
+
+async def moderation_callback(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
 
-    action, user_id_str = query.data.split("|")
-    user_id = int(user_id_str)
+    action, user_id = query.data.split("|")
+    user_id = int(user_id)
+    data = user_data_store.get(user_id)
 
-    message = query.message
-    photo_file_id = message.photo[-1].file_id
-    caption = message.caption
+    if not data:
+        await query.edit_message_caption("Заявка не найдена или уже обработана.")
+        return
 
     if action == "approve":
-        await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo_file_id, caption=caption, parse_mode="HTML")
-        await query.edit_message_caption(caption=caption + "\n\n✅ Одобрено и опубликовано.")
+        caption = f"{data['text']}\n\n🔗 {data['link']}"
+        await context.bot.send_photo(chat_id=CHANNEL_ID, photo=data['photo'], caption=caption)
+        await query.edit_message_caption("✅ Заявка одобрена и опубликована.")
+        user_data_store.pop(user_id, None)
     elif action == "reject":
-        await query.edit_message_caption(caption=caption + "\n\n❌ Отклонено.")
+        await query.edit_message_caption("❌ Заявка отклонена.")
+        user_data_store.pop(user_id, None)
 
-def main():
+async def cancel(update: Update, context: CallbackContext):
+    user_id = update.message.from_user.id
+    user_data_store.pop(user_id, None)
+    await update.message.reply_text("Заявка отменена.")
+    return ConversationHandler.END
+
+if __name__ == '__main__':
+    from telegram.ext import Application
+    import asyncio
+
     app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.PHOTO | filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(CallbackQueryHandler(handle_callback))
+
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            PHOTO: [MessageHandler(filters.PHOTO, handle_photo)],
+            TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)],
+            LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link)],
+            BUDGET: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_budget)],
+            CONFIRM: [CallbackQueryHandler(confirm_handler)]
+        },
+        fallbacks=[CommandHandler("cancel", cancel)]
+    )
+
+    app.add_handler(conv_handler)
+    app.add_handler(CallbackQueryHandler(moderation_callback, pattern="^(approve|reject)\\|"))
+
     app.run_polling()
 
-if __name__ == "__main__":
-    main()
