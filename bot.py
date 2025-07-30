@@ -1,168 +1,174 @@
 import logging
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InputMediaPhoto
-from telegram.ext import (ApplicationBuilder, CallbackQueryHandler, CommandHandler,
-                          ContextTypes, ConversationHandler, MessageHandler, filters)
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes, ConversationHandler
 
-import os
-import json
+# Константы для шагов
+PHOTO, TEXT, LINK, BUDGET, PREVIEW, EDIT_SELECT, EDIT_PHOTO, EDIT_TEXT, EDIT_LINK, EDIT_BUDGET = range(10)
 
-TOKEN = os.getenv("TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID", 987540995))
-CHANNEL_ID = os.getenv("CHANNEL_ID", "@tyumenmedia")
+# Временное хранилище заявок
+user_data_storage = {}
+admin_id = 987540995  # Твой Telegram ID
+channel_id = "@tyumenmedia"
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Этапы диалога
-PHOTO, TEXT, LINK, BUDGET, CONFIRM = range(5)
-EDIT_CHOICE, EDIT_PHOTO, EDIT_TEXT, EDIT_LINK, EDIT_BUDGET = range(5, 10)
-
-user_data = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📢 Отправьте фото для рекламного поста")
+    await update.message.reply_text("Привет! Отправь фото для рекламы.")
     return PHOTO
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_data[update.effective_chat.id] = {
+    user_data_storage[update.effective_chat.id] = {
         "photo": update.message.photo[-1].file_id
     }
-    await update.message.reply_text("✏️ Введите текст поста")
+    await update.message.reply_text("Отлично! Теперь пришли текст объявления.")
     return TEXT
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_data[update.effective_chat.id]["text"] = update.message.text
-    await update.message.reply_text("🔗 Введите ссылку (обязательно)")
+    user_data_storage[update.effective_chat.id]["text"] = update.message.text
+    await update.message.reply_text("Теперь отправь ссылку.")
     return LINK
 
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_data[update.effective_chat.id]["link"] = update.message.text
-    await update.message.reply_text("💰 Введите бюджет (опционально)")
+    user_data_storage[update.effective_chat.id]["link"] = update.message.text
+    await update.message.reply_text("И последний шаг — укажи бюджет в рублях.")
     return BUDGET
 
 async def handle_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_data[update.effective_chat.id]["budget"] = update.message.text
-    return await preview(update, context)
+    user_data_storage[update.effective_chat.id]["budget"] = update.message.text
+    return await send_preview(update, context)
 
-async def preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    data = user_data[chat_id]
-    caption = f"{data['text']}\n\n🔗 {data['link']}"
-    if data.get("budget"):
-        caption += f"\n💰 Бюджет: {data['budget']}"
+async def send_preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = user_data_storage.get(update.effective_chat.id)
+    if not data:
+        return ConversationHandler.END
 
-    keyboard = [
-        [
-            InlineKeyboardButton("✅ Отправить", callback_data="send"),
-            InlineKeyboardButton("✏️ Редактировать", callback_data="edit"),
-            InlineKeyboardButton("🗑️ Удалить", callback_data="delete")
-        ]
+    caption = f"{data['text']}\n\n🔗 {data['link']}\n💰 Бюджет: {data['budget']} ₽"
+    buttons = [
+        [InlineKeyboardButton("✅ Отправить", callback_data="submit")],
+        [InlineKeyboardButton("✏️ Редактировать", callback_data="edit"), InlineKeyboardButton("🗑️ Удалить", callback_data="delete")]
     ]
-    await context.bot.send_photo(chat_id=chat_id, photo=data["photo"], caption=caption, reply_markup=InlineKeyboardMarkup(keyboard))
-    return CONFIRM
+    await context.bot.send_photo(chat_id=update.effective_chat.id, photo=data['photo'], caption=caption, reply_markup=InlineKeyboardMarkup(buttons))
+    return PREVIEW
 
-async def handle_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_preview_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    chat_id = query.message.chat.id
+    action = query.data
+    user_id = query.from_user.id
 
-    if query.data == "send":
-        data = user_data[chat_id]
-        caption = f"{data['text']}\n\n🔗 {data['link']}"
-        if data.get("budget"):
-            caption += f"\n💰 Бюджет: {data['budget']}"
-        await context.bot.send_photo(chat_id=ADMIN_ID, photo=data['photo'], caption=caption)
-        await query.edit_message_caption("✅ Заявка отправлена на модерацию")
-        return ConversationHandler.END
-
-    elif query.data == "edit":
-        keyboard = [
-            [InlineKeyboardButton("📷 Изменить фото", callback_data="edit_photo")],
-            [InlineKeyboardButton("✏️ Изменить текст", callback_data="edit_text")],
-            [InlineKeyboardButton("🔗 Изменить ссылку", callback_data="edit_link")],
-            [InlineKeyboardButton("💰 Изменить бюджет", callback_data="edit_budget")],
-            [
-                InlineKeyboardButton("✅ Сохранить", callback_data="save_edit"),
-                InlineKeyboardButton("❌ Отменить", callback_data="cancel_edit")
-            ]
+    if action == "submit":
+        data = user_data_storage.get(user_id)
+        caption = f"{data['text']}\n\n🔗 {data['link']}\n💰 Бюджет: {data['budget']} ₽"
+        buttons = [
+            [InlineKeyboardButton("📢 Публиковать", callback_data=f"approve_{user_id}"),
+             InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{user_id}")]
         ]
-        await query.edit_message_caption("Выберите, что хотите изменить:", reply_markup=InlineKeyboardMarkup(keyboard))
-        return EDIT_CHOICE
-
-    elif query.data == "delete":
-        await query.edit_message_caption("❌ Заявка удалена")
-        user_data.pop(chat_id, None)
+        await context.bot.send_photo(chat_id=admin_id, photo=data['photo'], caption=caption, reply_markup=InlineKeyboardMarkup(buttons))
+        await query.edit_message_text("Заявка отправлена на модерацию. Ожидайте ответа.")
         return ConversationHandler.END
 
-async def edit_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    elif action == "edit":
+        buttons = [
+            [InlineKeyboardButton("Фото", callback_data="edit_photo"),
+             InlineKeyboardButton("Текст", callback_data="edit_text")],
+            [InlineKeyboardButton("Ссылку", callback_data="edit_link"),
+             InlineKeyboardButton("Бюджет", callback_data="edit_budget")],
+            [InlineKeyboardButton("↩️ Отменить", callback_data="cancel_edit")]
+        ]
+        await query.edit_message_text("Что вы хотите изменить?", reply_markup=InlineKeyboardMarkup(buttons))
+        return EDIT_SELECT
+
+    elif action == "delete":
+        user_data_storage.pop(user_id, None)
+        await query.edit_message_text("Заявка удалена.")
+        return ConversationHandler.END
+
+async def handle_edit_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    chat_id = query.message.chat.id
+    choice = query.data
 
-    if query.data == "edit_photo":
-        await context.bot.send_message(chat_id, "📷 Отправьте новое фото")
+    if choice == "edit_photo":
+        await query.edit_message_text("Отправьте новое фото:")
         return EDIT_PHOTO
-    elif query.data == "edit_text":
-        await context.bot.send_message(chat_id, "✏️ Введите новый текст")
+    elif choice == "edit_text":
+        await query.edit_message_text("Введите новый текст:")
         return EDIT_TEXT
-    elif query.data == "edit_link":
-        await context.bot.send_message(chat_id, "🔗 Введите новую ссылку")
+    elif choice == "edit_link":
+        await query.edit_message_text("Введите новую ссылку:")
         return EDIT_LINK
-    elif query.data == "edit_budget":
-        await context.bot.send_message(chat_id, "💰 Введите новый бюджет")
+    elif choice == "edit_budget":
+        await query.edit_message_text("Введите новый бюджет:")
         return EDIT_BUDGET
-    elif query.data == "save_edit":
-        return await preview(update, context)
-    elif query.data == "cancel_edit":
-        await context.bot.send_message(chat_id, "🔙 Редактирование отменено")
-        return await preview(update, context)
+    elif choice == "cancel_edit":
+        return await send_preview(update, context)
 
-async def update_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_data[update.effective_chat.id]["photo"] = update.message.photo[-1].file_id
-    await update.message.reply_text("✅ Фото обновлено")
-    return await preview(update, context)
+async def edit_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data_storage[update.effective_chat.id]['photo'] = update.message.photo[-1].file_id
+    await update.message.reply_text("Фото обновлено.")
+    return await send_preview(update, context)
 
-async def update_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_data[update.effective_chat.id]["text"] = update.message.text
-    await update.message.reply_text("✅ Текст обновлён")
-    return await preview(update, context)
+async def edit_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data_storage[update.effective_chat.id]['text'] = update.message.text
+    await update.message.reply_text("Текст обновлен.")
+    return await send_preview(update, context)
 
-async def update_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_data[update.effective_chat.id]["link"] = update.message.text
-    await update.message.reply_text("✅ Ссылка обновлена")
-    return await preview(update, context)
+async def edit_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data_storage[update.effective_chat.id]['link'] = update.message.text
+    await update.message.reply_text("Ссылка обновлена.")
+    return await send_preview(update, context)
 
-async def update_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_data[update.effective_chat.id]["budget"] = update.message.text
-    await update.message.reply_text("✅ Бюджет обновлён")
-    return await preview(update, context)
+async def edit_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_data_storage[update.effective_chat.id]['budget'] = update.message.text
+    await update.message.reply_text("Бюджет обновлён.")
+    return await send_preview(update, context)
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❌ Заявка отменена")
-    user_data.pop(update.effective_chat.id, None)
-    return ConversationHandler.END
+async def admin_approve_or_reject(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    action, user_id_str = query.data.split("_")
+    user_id = int(user_id_str)
+    data = user_data_storage.get(user_id)
 
-if __name__ == "__main__":
-    app = ApplicationBuilder().token(TOKEN).build()
+    if not data:
+        await query.edit_message_text("Заявка не найдена или уже была обработана.")
+        return
 
-    conv = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            PHOTO: [MessageHandler(filters.PHOTO, handle_photo)],
-            TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)],
-            LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link)],
-            BUDGET: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_budget)],
-            CONFIRM: [CallbackQueryHandler(handle_decision)],
-            EDIT_CHOICE: [CallbackQueryHandler(edit_choice)],
-            EDIT_PHOTO: [MessageHandler(filters.PHOTO, update_photo)],
-            EDIT_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, update_text)],
-            EDIT_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, update_link)],
-            EDIT_BUDGET: [MessageHandler(filters.TEXT & ~filters.COMMAND, update_budget)]
-        },
-        fallbacks=[CommandHandler("cancel", cancel)]
-    )
+    if action == "approve":
+        caption = f"{data['text']}\n\n🔗 {data['link']}\n💰 Бюджет: {data['budget']} ₽"
+        await context.bot.send_photo(chat_id=channel_id, photo=data['photo'], caption=caption)
+        await query.edit_message_text("Заявка одобрена и опубликована.")
+    else:
+        await context.bot.send_message(chat_id=user_id, text="Ваша заявка отклонена.")
+        await query.edit_message_text("Заявка отклонена.")
 
-    app.add_handler(conv)
-    app.run_polling()
+    user_data_storage.pop(user_id, None)
+
+from telegram.ext import Application
+
+app = ApplicationBuilder().token("8180478614:AAGY0UbvZlK-4wF2n4V25h_Wy_rWV1ogm6o").build()
+
+conv_handler = ConversationHandler(
+    entry_points=[CommandHandler("start", start)],
+    states={
+        PHOTO: [MessageHandler(filters.PHOTO, handle_photo)],
+        TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)],
+        LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link)],
+        BUDGET: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_budget)],
+        PREVIEW: [CallbackQueryHandler(handle_preview_action)],
+        EDIT_SELECT: [CallbackQueryHandler(handle_edit_selection)],
+        EDIT_PHOTO: [MessageHandler(filters.PHOTO, edit_photo)],
+        EDIT_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_text)],
+        EDIT_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_link)],
+        EDIT_BUDGET: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_budget)],
+    },
+    fallbacks=[]
+)
+
+app.add_handler(conv_handler)
+app.add_handler(CallbackQueryHandler(admin_approve_or_reject, pattern=r"^(approve|reject)_\d+$"))
+
+app.run_polling()
+
 
 
