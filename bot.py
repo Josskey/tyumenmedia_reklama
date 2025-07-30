@@ -169,6 +169,9 @@ app.add_handler(conv_handler)
 app.add_handler(CallbackQueryHandler(admin_approve_or_reject, pattern=r"^(approve|reject)_\d+$"))
 
 app.run_polling()
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
 
 
 
