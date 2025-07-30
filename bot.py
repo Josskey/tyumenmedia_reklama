@@ -153,6 +153,7 @@ async def main():
     await application.updater.idle()
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())
 
 
