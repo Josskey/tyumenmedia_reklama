@@ -10,8 +10,7 @@ PHOTO, TEXT, LINK, BUDGET, PREVIEW, EDIT_CHOICE = range(6)
 # Список обязательных полей
 REQUIRED_FIELDS = ["photo", "text", "link"]
 
-# TOKEN и ID администратора и канала
-TOKEN = "8180478614:AAGY0UbvZlK-4wF2n4V25h_Wy_rWV1ogm6o"
+# ID администратора и канала
 ADMIN_ID = 987540995
 CHANNEL_ID = "@tyumenmedia"
 
@@ -172,12 +171,9 @@ async def main():
     print("Бот запущен...")
     await app.run_polling()
 
-import asyncio
-
-if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.create_task(main())
-    loop.run_forever()
+if __name__ == '__main__':
+    import asyncio
+    asyncio.run(main())
 
 
 
