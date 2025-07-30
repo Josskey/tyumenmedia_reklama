@@ -172,9 +172,13 @@ async def main():
     print("Бот запущен...")
     await app.run_polling()
 
-if __name__ == '__main__':
-    import asyncio
-    asyncio.run(main())
+import asyncio
+
+if __name__ == "__main__":
+    loop = asyncio.get_event_loop()
+    loop.create_task(main())
+    loop.run_forever()
+
 
 
 
