@@ -1,9 +1,5 @@
-# Подготовка кода: обновление структуры Telegram-бота для рекламы
-# Добавляем логику редактирования полей после предпросмотра
-
-
 import logging
-from telegram import Update, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -13,7 +9,6 @@ from telegram.ext import (
     CallbackQueryHandler,
 )
 import os
-import json
 
 TOKEN = "8180478614:AAGY0UbvZlK-4wF2n4V25h_Wy_rWV1ogm6o"
 CHANNEL_ID = "@tyumenmedia"
@@ -36,7 +31,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if "editing" in session:
         field = session["editing"]
-        session[field] = message.text if field != "photo" else message.photo[-1].file_id
+        if field == "photo" and message.photo:
+            session[field] = message.photo[-1].file_id
+        else:
+            session[field] = message.text
         session.pop("editing")
         await send_preview(update, context, session)
         return
@@ -75,9 +73,10 @@ async def send_preview(update: Update, context: ContextTypes.DEFAULT_TYPE, sessi
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    action, user_id_str = query.data.split("|")
-    user_id = int(user_id_str)
-    session = user_sessions.get(user_id)
+    data_parts = query.data.split("|")
+    action = data_parts[0]
+    user_id = int(data_parts[1]) if len(data_parts) > 1 else query.from_user.id
+    session = user_sessions.setdefault(user_id, {})
 
     if action == "send":
         keyboard = InlineKeyboardMarkup([
@@ -88,34 +87,40 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_photo(chat_id=ADMIN_ID, photo=session["photo"], caption=caption, parse_mode="HTML", reply_markup=keyboard)
         await context.bot.send_message(chat_id=user_id, text="✅ Заявка отправлена админу.")
         user_sessions[user_id] = {}
+
     elif action == "delete":
         user_sessions[user_id] = {}
         await context.bot.send_message(chat_id=user_id, text="❌ Заявка удалена.")
+
     elif action == "edit_menu":
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📷 Фото", callback_data=f"edit_field|photo"),
-             InlineKeyboardButton("📝 Текст", callback_data=f"edit_field|text")],
-            [InlineKeyboardButton("🔗 Ссылка", callback_data=f"edit_field|link"),
-             InlineKeyboardButton("💰 Бюджет", callback_data=f"edit_field|budget")],
+            [InlineKeyboardButton("📷 Фото", callback_data="edit_field|photo")],
+            [InlineKeyboardButton("📝 Текст", callback_data="edit_field|text")],
+            [InlineKeyboardButton("🔗 Ссылка", callback_data="edit_field|link")],
+            [InlineKeyboardButton("💰 Бюджет", callback_data="edit_field|budget")],
             [InlineKeyboardButton("🔙 Назад", callback_data=f"cancel_edit|{user_id}")]
         ])
         await context.bot.send_message(chat_id=user_id, text="Выберите, что хотите изменить:", reply_markup=keyboard)
-    elif action.startswith("edit_field"):
-        field = action.split("|")[1]
-        user_sessions[user_id]["editing"] = field
-        prompt = {
-            "photo": "📷 Отправьте новое фото",
-            "text": "📝 Отправьте новый текст",
-            "link": "🔗 Отправьте новую ссылку",
-            "budget": "💰 Укажите новый бюджет"
+
+    elif action == "edit_field":
+        field = data_parts[1]
+        session["editing"] = field
+        prompts = {
+            "photo": "📷 Отправьте новое фото.",
+            "text": "📝 Отправьте новый текст.",
+            "link": "🔗 Отправьте новую ссылку.",
+            "budget": "💰 Укажите новый бюджет."
         }
-        await context.bot.send_message(chat_id=user_id, text=prompt[field])
+        await context.bot.send_message(chat_id=user_id, text=prompts[field])
+
     elif action == "cancel_edit":
         await send_preview(update, context, session)
+
     elif action == "approve":
         await context.bot.send_photo(chat_id=CHANNEL_ID, photo=update.effective_message.photo[-1].file_id,
                                      caption=update.effective_message.caption, parse_mode="HTML")
         await query.edit_message_caption(caption=update.effective_message.caption + "\n\n✅ Одобрено и опубликовано.")
+
     elif action == "reject":
         await query.edit_message_caption(caption=update.effective_message.caption + "\n\n❌ Отклонено.")
 
@@ -128,6 +133,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
