@@ -26,6 +26,8 @@ if not os.path.exists(ADS_FILE):
 user_sessions = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    user_sessions[user_id] = {"step": "photo"}  # сбрасываем сессию
     await update.message.reply_text(
         "Привет! Отправьте:\n1. Фото\n2. Текст\n3. Ссылку\n4. Бюджет\n— и я создам пост и передам админу на модерацию."
     )
@@ -34,7 +36,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     message = update.message
 
-    if user_id not in user_sessions:
+    if user_id not in user_sessions or "step" not in user_sessions[user_id]:
         user_sessions[user_id] = {"step": "photo"}
 
     session = user_sessions[user_id]
@@ -80,7 +82,6 @@ async def send_preview(update, context, user_id):
     keyboard = preview_keyboard()
     await update.message.reply_photo(photo=session["photo_file_id"], caption=preview_text, parse_mode="HTML", reply_markup=keyboard)
 
-
 def preview_keyboard():
     return InlineKeyboardMarkup([
         [
@@ -89,7 +90,6 @@ def preview_keyboard():
             InlineKeyboardButton("❌ Удалить", callback_data="cancel")
         ]
     ])
-
 
 def edit_keyboard():
     return InlineKeyboardMarkup([
@@ -103,7 +103,6 @@ def edit_keyboard():
         ],
         [InlineKeyboardButton("🔙 Назад", callback_data="back")]
     ])
-
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -124,7 +123,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_photo(chat_id=ADMIN_ID, photo=session["photo_file_id"], caption=caption, parse_mode="HTML", reply_markup=keyboard)
             await query.edit_message_caption(caption=caption + "\n\n⏳ Отправлено админу.")
             await context.bot.send_message(chat_id=user_id, text="✅ Заявка отправлена админу. Ожидайте решения.")
-            user_sessions[user_id]["step"] = "waiting_admin"
+            session["step"] = "waiting_admin"
     elif data == "cancel":
         user_sessions[user_id] = {}
         await query.edit_message_caption(caption="❌ Заявка отменена.")
