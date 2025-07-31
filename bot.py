@@ -26,21 +26,17 @@ if not os.path.exists(ADS_FILE):
 user_sessions = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📨 Подать заявку на рекламу", callback_data="begin_form")]
-    ])
+    user_id = update.message.from_user.id
+    user_sessions[user_id] = {"step": "photo"}  # сбрасываем сессию
     await update.message.reply_text(
-        "Добро пожаловать в официальный бот медиаплатформы ТюМедиа.\n"
-        "Здесь вы можете оставить заявку на размещение рекламного объявления.\n\n"
-        "ℹ️ Чтобы начать оформление, нажмите кнопку ниже.",
-        reply_markup=keyboard
+        "Привет! Отправьте:\n1. Фото\n2. Текст\n3. Ссылку\n4. Бюджет\n— и я создам пост и передам админу на модерацию."
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     message = update.message
 
-    if user_id not in user_sessions:
+    if user_id not in user_sessions or "step" not in user_sessions[user_id]:
         user_sessions[user_id] = {"step": "photo"}
 
     session = user_sessions[user_id]
@@ -114,10 +110,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     data = query.data
 
-    if data == "begin_form":
-        user_sessions[user_id] = {"step": "photo"}
-        await context.bot.send_message(chat_id=user_id, text="📷 Пожалуйста, отправьте изображение для рекламы.")
-    elif data == "send":
+    if data == "send":
         session = user_sessions.get(user_id, {})
         if all(k in session for k in ["photo_file_id", "text", "link", "budget"]):
             caption = f"📌 <b>Рекламный пост</b>\n\n{session['text']}\n\n🔗 {session['link']}\n💸 Бюджет: {session['budget']}"
@@ -130,7 +123,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_photo(chat_id=ADMIN_ID, photo=session["photo_file_id"], caption=caption, parse_mode="HTML", reply_markup=keyboard)
             await query.edit_message_caption(caption=caption + "\n\n⏳ Отправлено админу.")
             await context.bot.send_message(chat_id=user_id, text="✅ Заявка отправлена админу. Ожидайте решения.")
-            user_sessions[user_id]["step"] = "waiting_admin"
+            session["step"] = "waiting_admin"
     elif data == "cancel":
         user_sessions[user_id] = {}
         await query.edit_message_caption(caption="❌ Заявка отменена.")
@@ -168,8 +161,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
 
 
 
