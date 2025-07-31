@@ -26,10 +26,12 @@ if not os.path.exists(ADS_FILE):
 user_sessions = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    user_sessions[user_id] = {"step": "photo"}  # сбрасываем сессию
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📨 Заполнить рекламную заявку", callback_data="begin_form")]
+    ])
     await update.message.reply_text(
-        "Привет! Отправьте:\n1. Фото\n2. Текст\n3. Ссылку\n4. Бюджет\n— и я создам пост и передам админу на модерацию."
+        "Это официальный Telegram-бот TyumenMedia.\n\nЗдесь вы можете оставить заявку на размещение рекламы.\n\nДля начала нажмите кнопку ниже:",
+        reply_markup=keyboard
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -37,12 +39,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
 
     if user_id not in user_sessions or "step" not in user_sessions[user_id]:
-        user_sessions[user_id] = {"step": "photo"}
+        await message.reply_text("Нажмите /start и затем кнопку для подачи заявки.")
+        return
 
     session = user_sessions[user_id]
 
     if session.get("step") == "waiting_admin":
-        await update.message.reply_text("⏳ Ваша заявка уже отправлена админу. Пожалуйста, дождитесь решения.")
+        await message.reply_text("⏳ Ваша заявка уже отправлена админу. Пожалуйста, дождитесь решения.")
         return
 
     if session.get("editing"):
@@ -110,6 +113,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     data = query.data
 
+    if data == "begin_form":
+        user_sessions[user_id] = {"step": "photo"}
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="Привет! Отправьте:\n1. Фото\n2. Текст\n3. Ссылку\n4. Бюджет\n— и я создам пост и передам админу на модерацию."
+        )
+        return
+
     if data == "send":
         session = user_sessions.get(user_id, {})
         if all(k in session for k in ["photo_file_id", "text", "link", "budget"]):
@@ -161,7 +172,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 
 
