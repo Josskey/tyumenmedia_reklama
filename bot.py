@@ -1,5 +1,5 @@
-import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+import logging 
+from telegram import Update, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -18,80 +18,87 @@ ADMIN_ID = 987540995
 logging.basicConfig(level=logging.INFO)
 
 ADS_FILE = "ads.json"
+
 if not os.path.exists(ADS_FILE):
     with open(ADS_FILE, "w") as f:
         json.dump([], f)
 
+ads_cache = []
 user_sessions = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    user_sessions[user_id] = {"step": "photo"}
     await update.message.reply_text(
-        "Привет! Отправьте:",
+        "Привет! Отправьте:\n1. Фото\n2. Текст\n3. Ссылку\n4. Бюджет\n— и я создам пост и передам админу на модерацию."
     )
-    await show_ad_form(update, context)
-
-async def show_ad_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("📷 Фото", callback_data="edit|photo")],
-        [InlineKeyboardButton("📝 Текст", callback_data="edit|text")],
-        [InlineKeyboardButton("🔗 Ссылка", callback_data="edit|link")],
-        [InlineKeyboardButton("💰 Бюджет", callback_data="edit|budget")],
-        [
-            InlineKeyboardButton("✅ Отправить", callback_data="submit"),
-            InlineKeyboardButton("❌ Удалить", callback_data="delete")
-        ]
-    ]
-    await update.message.reply_text("Что вы хотите сделать?", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     message = update.message
 
-    session = user_sessions.setdefault(user_id, {})
-    step = session.get("step")
+    if user_id not in user_sessions:
+        user_sessions[user_id] = {"step": "photo"}
 
-    if step == "photo" and message.photo:
-        session["photo_file_id"] = message.photo[-1].file_id
-        await message.reply_text("Фото обновлено ✅")
-    elif step == "text" and message.text:
+    session = user_sessions[user_id]
+
+    if session.get("editing"):  # Режим редактирования
+        field = session["editing"]
+        session[field] = message.text if field != "photo_file_id" else message.photo[-1].file_id
+        session.pop("editing")
+        await message.reply_text(f"✅ {field} обновлено.", reply_markup=preview_keyboard())
+        return
+
+    if session["step"] == "photo":
+        if message.photo:
+            session["photo_file_id"] = message.photo[-1].file_id
+            session["step"] = "text"
+            await message.reply_text("📝 Теперь отправьте текст объявления.")
+        else:
+            await message.reply_text("Пожалуйста, пришлите изображение.")
+    elif session["step"] == "text":
         session["text"] = message.text
-        await message.reply_text("Текст обновлён ✅")
-    elif step == "link" and message.text:
+        session["step"] = "link"
+        await message.reply_text("🔗 Теперь пришлите ссылку.")
+    elif session["step"] == "link":
         session["link"] = message.text
-        await message.reply_text("Ссылка обновлена ✅")
-    elif step == "budget" and message.text:
+        session["step"] = "budget"
+        await message.reply_text("💰 И наконец — бюджет.")
+    elif session["step"] == "budget":
         session["budget"] = message.text
-        await message.reply_text("Бюджет обновлён ✅")
-    else:
-        await message.reply_text("Пожалуйста, выберите, что хотите отредактировать.")
-
-    session["step"] = None
-    await show_ad_form(update, context)
+        await message.reply_photo(
+            photo=session["photo_file_id"],
+            caption=generate_preview(session),
+            parse_mode="HTML",
+            reply_markup=preview_keyboard()
+        )
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    user_id = query.from_user.id
     await query.answer()
-
     data = query.data
-    session = user_sessions.setdefault(user_id, {})
+    user_id = query.from_user.id
 
-    if data.startswith("edit"):
-        _, field = data.split("|")
-        session["step"] = field
-        await query.message.reply_text(f"✍️ Пришлите новое значение для поля: {field.upper()}.")
-
+    if data.startswith("edit:"):
+        field = data.split(":")[1]
+        user_sessions[user_id]["editing"] = field
+        prompt = {
+            "photo_file_id": "📷 Пришлите новое фото.",
+            "text": "📝 Введите новый текст.",
+            "link": "🔗 Введите новую ссылку.",
+            "budget": "💰 Введите новый бюджет."
+        }[field]
+        await query.edit_message_caption(caption="✏️ Редактирование поля.", reply_markup=None)
+        await context.bot.send_message(chat_id=user_id, text=prompt)
     elif data == "submit":
-        if not all(session.get(k) for k in ("photo_file_id", "text", "link")):
-            await query.message.reply_text("Необходимо заполнить как минимум фото, текст и ссылку.")
-            return
-
-        post_preview = f"📌 <b>Рекламный пост</b>\n\n{session['text']}\n\n🔗 {session['link']}\n💸 Бюджет: {session.get('budget', 'не указан')}"
+        session = user_sessions[user_id]
+        post_preview = generate_preview(session)
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Одобрить", callback_data=f"approve|{user_id}"),
-             InlineKeyboardButton("❌ Отклонить", callback_data=f"reject|{user_id}")]
+            [
+                InlineKeyboardButton("✅ Одобрить", callback_data=f"approve|{user_id}"),
+                InlineKeyboardButton("❌ Отклонить", callback_data=f"reject|{user_id}")
+            ]
         ])
-
         await context.bot.send_photo(
             chat_id=ADMIN_ID,
             photo=session['photo_file_id'],
@@ -99,29 +106,37 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML",
             reply_markup=keyboard
         )
-
-        await query.message.reply_text("Заявка отправлена админу ✅")
-        session.clear()
-
-    elif data == "delete":
-        session.clear()
-        await query.message.reply_text("Заявка удалена 🗑")
-
+        await context.bot.send_message(chat_id=user_id, text="✅ Заявка отправлена админу. Ожидайте решения.")
+        user_sessions[user_id] = {}
+    elif data == "cancel":
+        user_sessions.pop(user_id, None)
+        await query.edit_message_caption(caption="❌ Заявка отменена.", reply_markup=None)
     elif data.startswith("approve") or data.startswith("reject"):
-        action, uid = data.split("|")
-        uid = int(uid)
-        target_session = user_sessions.get(uid, {})
-        caption = query.message.caption
-        photo = query.message.photo[-1].file_id if query.message.photo else None
+        action, uid_str = data.split("|")
+        uid = int(uid_str)
+        message = query.message
+        photo_file_id = message.photo[-1].file_id
+        caption = message.caption
 
-        if action == "approve" and photo:
-            await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo, caption=caption, parse_mode="HTML")
+        if action == "approve":
+            await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo_file_id, caption=caption, parse_mode="HTML")
             await query.edit_message_caption(caption=caption + "\n\n✅ Одобрено и опубликовано.")
-        elif action == "reject":
+        else:
             await query.edit_message_caption(caption=caption + "\n\n❌ Отклонено.")
 
-        user_sessions.pop(uid, None)
 
+def generate_preview(session):
+    return f"📌 <b>Рекламный пост</b>\n\n{session['text']}\n\n🔗 {session['link']}\n💸 Бюджет: {session['budget']}"
+
+def preview_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📷 Фото", callback_data="edit:photo_file_id"),
+         InlineKeyboardButton("📝 Текст", callback_data="edit:text")],
+        [InlineKeyboardButton("🔗 Ссылка", callback_data="edit:link"),
+         InlineKeyboardButton("💰 Бюджет", callback_data="edit:budget")],
+        [InlineKeyboardButton("✅ Отправить", callback_data="submit"),
+         InlineKeyboardButton("❌ Удалить", callback_data="cancel")]
+    ])
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -130,9 +145,9 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.run_polling()
 
-
 if __name__ == "__main__":
     main()
+
 
 
 
