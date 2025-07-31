@@ -124,7 +124,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_photo(chat_id=ADMIN_ID, photo=session["photo_file_id"], caption=caption, parse_mode="HTML", reply_markup=keyboard)
             await query.edit_message_caption(caption=caption + "\n\n⏳ Отправлено админу.")
             await context.bot.send_message(chat_id=user_id, text="✅ Заявка отправлена админу. Ожидайте решения.")
-            user_sessions[user_id]["step"] = "waiting_admin"
+            user_sessions[user_id] = {"step": "photo"}
     elif data == "cancel":
         user_sessions[user_id] = {}
         await query.edit_message_caption(caption="❌ Заявка отменена.")
