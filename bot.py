@@ -1,7 +1,7 @@
 # Подготовка кода: обновление структуры Telegram-бота для рекламы
 # Добавляем логику редактирования полей после предпросмотра
 
-updated_code = """
+
 import logging
 from telegram import Update, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -128,9 +128,9 @@ def main():
 
 if __name__ == "__main__":
     main()
-"""
 
-updated_code[:500]  # покажем начало кода для проверки
+
+
 
 
 
