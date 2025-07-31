@@ -1,5 +1,5 @@
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -18,18 +18,47 @@ ADMIN_ID = 987540995
 logging.basicConfig(level=logging.INFO)
 
 ADS_FILE = "ads.json"
-
 if not os.path.exists(ADS_FILE):
     with open(ADS_FILE, "w") as f:
         json.dump([], f)
 
 user_sessions = {}
 
+async def set_bot_commands(app):
+    commands = [
+        BotCommand(command="form", description="📨 Заполнить заявку"),
+    ]
+    await app.bot.set_my_commands(commands)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    user_sessions[user_id] = {"step": "photo"}  # сбрасываем сессию
+    user_sessions[user_id] = {"step": "idle"}
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📨 Заполнить рекламную заявку", callback_data="begin_form")]
+    ])
+
     await update.message.reply_text(
-        "Привет! Отправьте:\n1. Фото\n2. Текст\n3. Ссылку\n4. Бюджет\n— и я создам пост и передам админу на модерацию."
+        "Добро пожаловать!\nЗдесь вы можете подать заявку на публикацию рекламы.",
+        reply_markup=keyboard
+    )
+
+async def form_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    user_sessions[user_id] = {"step": "photo"}
+    await update.message.reply_text(
+        "Прекрасно! Отправьте:\n1. Фото\n2. Текст\n3. Ссылку\n4. Бюджет\n— и я создам пост и передам админу на модерацию."
+    )
+
+async def begin_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    user_sessions[user_id] = {"step": "photo"}
+    await context.bot.send_message(
+        chat_id=user_id,
+        text="Прекрасно! Отправьте:\n1. Фото\n2. Текст\n3. Ссылку\n4. Бюджет\n— и я создам пост и передам админу на модерацию."
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -110,7 +139,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     data = query.data
 
-    if data == "send":
+    if data == "begin_form":
+        await begin_form(update, context)
+
+    elif data == "send":
         session = user_sessions.get(user_id, {})
         if all(k in session for k in ["photo_file_id", "text", "link", "budget"]):
             caption = f"📌 <b>Рекламный пост</b>\n\n{session['text']}\n\n🔗 {session['link']}\n💸 Бюджет: {session['budget']}"
@@ -124,18 +156,23 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_caption(caption=caption + "\n\n⏳ Отправлено админу.")
             await context.bot.send_message(chat_id=user_id, text="✅ Заявка отправлена админу. Ожидайте решения.")
             session["step"] = "waiting_admin"
+
     elif data == "cancel":
         user_sessions[user_id] = {}
         await query.edit_message_caption(caption="❌ Заявка отменена.")
+
     elif data == "edit":
         await query.edit_message_reply_markup(reply_markup=edit_keyboard())
+
     elif data.startswith("edit_"):
         field = data.split("_")[1]
         user_sessions[user_id]["editing"] = True
         user_sessions[user_id]["edit_field"] = field
         await context.bot.send_message(chat_id=user_id, text=f"✏️ Пришлите новое значение для поля: {field.upper()}")
+
     elif data == "back":
         await query.edit_message_reply_markup(reply_markup=preview_keyboard())
+
     elif "|" in data:
         action, target_id_str = data.split("|")
         target_id = int(target_id_str)
@@ -155,12 +192,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("form", form_command))  # новая команда
     app.add_handler(MessageHandler(filters.PHOTO | (filters.TEXT & ~filters.COMMAND), handle_message))
     app.add_handler(CallbackQueryHandler(handle_callback))
+
+    app.post_init = set_bot_commands  # установить команды после запуска
     app.run_polling()
 
 if __name__ == "__main__":
     main()
+
 
 
 
