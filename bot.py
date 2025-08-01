@@ -82,8 +82,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def send_preview(update, context, user_id):
     session = user_sessions[user_id]
     preview_text = f"📌 <b>Рекламный пост</b>\n\n{session['text']}\n\n🔗 {session['link']}\n💸 Бюджет: {session['budget']}"
+    
+    # Получаем информацию о пользователе
+    user_info = f"Отправитель: {update.message.from_user.full_name}\nUsername: @{update.message.from_user.username}\nID: {user_id}"
+
     keyboard = preview_keyboard()
-    await update.message.reply_photo(photo=session["photo_file_id"], caption=preview_text, parse_mode="HTML", reply_markup=keyboard)
+    await update.message.reply_photo(photo=session["photo_file_id"], caption=preview_text + "\n\n" + user_info, parse_mode="HTML", reply_markup=keyboard)
 
 def preview_keyboard():
     return InlineKeyboardMarkup([
@@ -103,6 +107,20 @@ def edit_keyboard():
         [
             InlineKeyboardButton("🔗 Ссылка", callback_data="edit_link"),
             InlineKeyboardButton("💰 Бюджет", callback_data="edit_budget")
+        ],
+        [InlineKeyboardButton("🔙 Назад", callback_data="back")]
+    ])
+
+# Добавление кнопок для выбора причины отказа
+def rejection_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("❌ Несоответствие контента", callback_data="reject_content"),
+            InlineKeyboardButton("❌ Недостаточный бюджет", callback_data="reject_budget")
+        ],
+        [
+            InlineKeyboardButton("❌ Не подходит по тематике", callback_data="reject_topic"),
+            InlineKeyboardButton("❌ Нарушение законодательства", callback_data="reject_law")
         ],
         [InlineKeyboardButton("🔙 Назад", callback_data="back")]
     ])
@@ -147,6 +165,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=user_id, text=f"✏️ Пришлите новое значение для поля: {field.upper()}")
     elif data == "back":
         await query.edit_message_reply_markup(reply_markup=preview_keyboard())
+    elif data == "reject":
+        await query.edit_message_reply_markup(reply_markup=rejection_keyboard())  # Выбор причины отказа
+    elif data.startswith("reject_"):
+        reason = data.split("_")[1]
+        await query.edit_message_caption(caption=f"❌ Отклонено по причине: {reason.capitalize()}")
+        await context.bot.send_message(chat_id=user_id, text=f"❌ Ваша заявка отклонена. Причина: {reason.capitalize()}.")
+        user_sessions[user_id] = {}
+
     elif "|" in data:
         action, target_id_str = data.split("|")
         target_id = int(target_id_str)
@@ -170,7 +196,7 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.run_polling()
 
-if __name__ == "__main__":
+
     main()
 
 
