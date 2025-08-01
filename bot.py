@@ -82,12 +82,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def send_preview(update, context, user_id):
     session = user_sessions[user_id]
     preview_text = f"📌 <b>Рекламный пост</b>\n\n{session['text']}\n\n🔗 {session['link']}\n💸 Бюджет: {session['budget']}"
-    
-    # Получаем информацию о пользователе
-    user_info = f"Отправитель: {update.message.from_user.full_name}\nUsername: @{update.message.from_user.username}\nID: {user_id}"
-
     keyboard = preview_keyboard()
-    await update.message.reply_photo(photo=session["photo_file_id"], caption=preview_text + "\n\n" + user_info, parse_mode="HTML", reply_markup=keyboard)
+    await update.message.reply_photo(photo=session["photo_file_id"], caption=preview_text, parse_mode="HTML", reply_markup=keyboard)
 
 def preview_keyboard():
     return InlineKeyboardMarkup([
@@ -196,7 +192,7 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.run_polling()
 
-
+if __name__ == "__main__":
     main()
 
 
