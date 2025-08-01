@@ -107,20 +107,6 @@ def edit_keyboard():
         [InlineKeyboardButton("🔙 Назад", callback_data="back")]
     ])
 
-# Добавление кнопок для выбора причины отказа
-def rejection_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("❌ Несоответствие контента", callback_data="reject_content"),
-            InlineKeyboardButton("❌ Недостаточный бюджет", callback_data="reject_budget")
-        ],
-        [
-            InlineKeyboardButton("❌ Не подходит по тематике", callback_data="reject_topic"),
-            InlineKeyboardButton("❌ Нарушение законодательства", callback_data="reject_law")
-        ],
-        [InlineKeyboardButton("🔙 Назад", callback_data="back")]
-    ])
-
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -161,14 +147,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=user_id, text=f"✏️ Пришлите новое значение для поля: {field.upper()}")
     elif data == "back":
         await query.edit_message_reply_markup(reply_markup=preview_keyboard())
-    elif data == "reject":
-        await query.edit_message_reply_markup(reply_markup=rejection_keyboard())  # Выбор причины отказа
-    elif data.startswith("reject_"):
-        reason = data.split("_")[1]
-        await query.edit_message_caption(caption=f"❌ Отклонено по причине: {reason.capitalize()}")
-        await context.bot.send_message(chat_id=user_id, text=f"❌ Ваша заявка отклонена. Причина: {reason.capitalize()}.")
-        user_sessions[user_id] = {}
-
     elif "|" in data:
         action, target_id_str = data.split("|")
         target_id = int(target_id_str)
