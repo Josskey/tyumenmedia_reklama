@@ -18,12 +18,17 @@ ADMIN_ID = 987540995
 logging.basicConfig(level=logging.INFO)
 
 ADS_FILE = "ads.json"
-
 if not os.path.exists(ADS_FILE):
     with open(ADS_FILE, "w") as f:
         json.dump([], f)
 
 user_sessions = {}
+rejection_reasons = {
+    "reason1": "❌ Несоответствие контента",
+    "reason2": "❌ Недостаточный бюджет",
+    "reason3": "❌ Не подходит по тематике",
+    "reason4": "❌ Нарушение законодательства"
+}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([
@@ -107,6 +112,12 @@ def edit_keyboard():
         [InlineKeyboardButton("🔙 Назад", callback_data="back")]
     ])
 
+def rejection_keyboard(user_id):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(text, callback_data=f"reason|{key}|{user_id}")]
+        for key, text in rejection_reasons.items()
+    ])
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -128,7 +139,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton("✅ Одобрить", callback_data=f"approve|{user_id}"),
-                    InlineKeyboardButton("❌ Отклонить", callback_data=f"reject|{user_id}")
+                    InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_menu|{user_id}")
                 ]
             ])
             await context.bot.send_photo(chat_id=ADMIN_ID, photo=session["photo_file_id"], caption=caption, parse_mode="HTML", reply_markup=keyboard)
@@ -147,21 +158,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=user_id, text=f"✏️ Пришлите новое значение для поля: {field.upper()}")
     elif data == "back":
         await query.edit_message_reply_markup(reply_markup=preview_keyboard())
-    elif "|" in data:
-        action, target_id_str = data.split("|")
-        target_id = int(target_id_str)
+    elif data.startswith("approve"):
+        _, target_id = data.split("|")
+        target_id = int(target_id)
         msg = query.message
         photo = msg.photo[-1].file_id
         caption = msg.caption
-        if action == "approve":
-            await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo, caption=caption, parse_mode="HTML")
-            await query.edit_message_caption(caption=caption + "\n\n✅ Одобрено и опубликовано.")
-            await context.bot.send_message(chat_id=target_id, text="✅ Ваша заявка одобрена и опубликована.")
-            user_sessions[target_id] = {}
-        elif action == "reject":
-            await query.edit_message_caption(caption=caption + "\n\n❌ Отклонено.")
-            await context.bot.send_message(chat_id=target_id, text="❌ Ваша заявка отклонена.")
-            user_sessions[target_id] = {}
+        await context.bot.send_photo(chat_id=CHANNEL_ID, photo=photo, caption=caption, parse_mode="HTML")
+        await query.edit_message_caption(caption=caption + "\n\n✅ Одобрено и опубликовано.")
+        await context.bot.send_message(chat_id=target_id, text="✅ Ваша заявка одобрена и опубликована.")
+        user_sessions[target_id] = {}
+    elif data.startswith("reject_menu"):
+        _, target_id = data.split("|")
+        await query.edit_message_reply_markup(reply_markup=rejection_keyboard(target_id))
+    elif data.startswith("reason"):
+        _, reason_key, target_id = data.split("|")
+        target_id = int(target_id)
+        reason_text = rejection_reasons.get(reason_key, "❌ Заявка отклонена.")
+        await context.bot.send_message(chat_id=target_id, text=f"{reason_text}\n
+Ваша заявка отклонена.")
+        await query.edit_message_caption(caption=query.message.caption + f"\n\n{reason_text}")
+        user_sessions[target_id] = {}
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -172,8 +189,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
 
 
 
