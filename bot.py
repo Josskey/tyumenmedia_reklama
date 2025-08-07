@@ -31,15 +31,19 @@ rejection_reasons = {
 }
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📨 Заполнить рекламную заявку", callback_data="begin_form")]
-    ])
-    await update.message.reply_text(
-        "Это официальный Telegram-бот TyumenMedia.\n\nЗдесь вы можете оставить заявку на размещение рекламы.\n\nДля начала нажмите кнопку ниже:",
-        reply_markup=keyboard
-    )
+    if update.message:
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📨 Заполнить рекламную заявку", callback_data="begin_form")]
+        ])
+        await update.message.reply_text(
+            "Это официальный Telegram-бот TyumenMedia.\n\nЗдесь вы можете оставить заявку на размещение рекламы.\n\nДля начала нажмите кнопку ниже:",
+            reply_markup=keyboard
+        )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message is None:
+        return
+
     user_id = update.message.from_user.id
     message = update.message
 
