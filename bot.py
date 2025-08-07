@@ -176,7 +176,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target_id = int(target_id)
         reason_text = rejection_reasons.get(reason_key, "❌ Заявка отклонена.")
         await context.bot.send_message(chat_id=target_id, text=f"{reason_text}\n
-Ваша заявка отклонена.")
+nВаша заявка отклонена.")
         await query.edit_message_caption(caption=query.message.caption + f"\n\n{reason_text}")
         user_sessions[target_id] = {}
 
